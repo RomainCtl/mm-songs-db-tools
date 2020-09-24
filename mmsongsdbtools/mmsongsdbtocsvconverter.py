@@ -5,7 +5,7 @@ import json
 import logging
 import os
 
-import hdf5_getters
+from mmsongsdbtools import hdf5_getters
 
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,8 @@ class MMSongsDbToCsvConverter(object):
         self.getters = None
 
     def _get_getters(self, h5):
-        all_getters = filter(lambda key: key[:4] == 'get_' and key != 'get_num_songs',
-                             hdf5_getters.__dict__.keys())
+        all_getters = list(filter(lambda key: key[:4] == 'get_' and key != 'get_num_songs',
+                             hdf5_getters.__dict__.keys()))
         if not self.attrs_to_save:
             return sorted(all_getters)
         getters = []
@@ -46,14 +46,22 @@ class MMSongsDbToCsvConverter(object):
             self.getters = self._get_getters(h5)
             getter_row = [getter[4:] for getter in self.getters]
             self.writer.writerow(getter_row)
-        for i in xrange(num_songs):
+        for i in range(num_songs):
             result = []
             for getter in self.getters:
                 hdf5_getter = getattr(hdf5_getters, getter)
                 value = hdf5_getter(h5, i)
                 if value.__class__.__name__ == 'ndarray':
                     # Special case for ndarray types
-                    value = json.dumps(value.tolist())
+                    def dec(x):
+                        if x.__class__.__name__ == 'bytes_' or isinstance(x, bytes):
+                            return x.decode("utf-8")
+                        else:
+                            return x
+
+                    value = json.dumps(list(map(dec, value.tolist())))
+                elif value.__class__.__name__ == 'bytes_' or isinstance(value, bytes):
+                    value = value.decode("utf-8")
                 result.append(value)
             self.writer.writerow(result)
         h5.close()
@@ -65,8 +73,8 @@ class MMSongsDbToCsvConverter(object):
             raise Exception("Directory %s doesn't exist, are you sure this is what you're looking for?" % directory)
         self.dirnames_seen.add(directory)
         for root, dirnames, filenames in os.walk(directory):
-            filenames = filter(lambda filename: filename.endswith('.h5'),
-                               filenames)
+            filenames = list(filter(lambda filename: filename.endswith('.h5'),
+                               filenames))
             logger.info("_convert_directory() for dir %s with %s h5 files...",
                         root,
                         len(filenames))
@@ -90,7 +98,7 @@ class MMSongsDbToCsvConverter(object):
                     directory,
                     self.csv_filename)
         self.dirnames_seen = set()
-        with open(self.csv_filename, 'w') as self.fp:
+        with open(self.csv_filename, 'w', encoding='utf8', newline='') as self.fp:
             self.writer = csv.writer(self.fp)
             self._convert_directory(directory)
         logger.info("%s dirnames seen", len(self.dirnames_seen))
